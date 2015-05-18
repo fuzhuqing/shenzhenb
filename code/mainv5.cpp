@@ -33,11 +33,46 @@ struct eqstr
   }
 };
 
+// for serialization, needed to be implemented later
+struct StringToIntSerializer {
+  bool operator()(FILE* fp, const std::pair<const int, std::string>& value) const {
+    // Write the key.  We ignore endianness for this example.
+    if (fwrite(&value.first, sizeof(value.first), 1, fp) != 1)
+      return false;
+    // Write the value.
+    assert(value.second.length() <= 255);   // we only support writing small strings
+    const unsigned char size = value.second.length();
+    if (fwrite(&size, 1, 1, fp) != 1)
+      return false;
+    if (fwrite(value.second.data(), size, 1, fp) != 1)
+      return false;
+    return true;
+  }
+  bool operator()(FILE* fp, std::pair<const int, std::string>* value) const {
+    // Read the key.  Note the need for const_cast to get around
+    // the fact hash_map keys are always const.
+    if (fread(const_cast<int*>(&value->first), sizeof(value->first), 1, fp) != 1)
+      return false;
+    // Read the value.
+    unsigned char size;    // all strings are <= 255 chars long
+    if (fread(&size, 1, 1, fp) != 1)
+      return false;
+    char* buf = new char[size];
+    if (fread(buf, size, 1, fp) != 1) {
+      delete[] buf;
+      return false;
+    }
+    new(&value->second) string(buf, size);
+    delete[] buf;
+    return true;
+  }
+};
+
 
 int main() {
   FILE *pfile = NULL;
-  const char *file = "../data";
-  // const char *file = "../yaa"; // small amount of test data
+  // const char *file = "../data";
+  const char *file = "../yaa"; // small amount of test data
 
   sparse_hash_map<const char*, char *, MyHash<const char*>, eqstr> genes;
   MyHash<const char *> myHash;
@@ -89,10 +124,13 @@ int main() {
   // explainResult(genes[(create_bitarray(subgene3,K))->words]);
   // explainResult(genes[(create_bitarray(subgene4,K))->words]);
 
+  // FILE* fp = fopen("hashtable.data", "w");
+  // genes.serialize(StringToIntSerializer(), fp);
+  // fclose(fp);
   pause();
 }
 
-
+// hash function
 uint64_t MyHashFunction(const void * key)
 {
   const uint64_t m = 0xc6a4a7935bd1e995;
@@ -121,6 +159,7 @@ uint64_t MyHashFunction(const void * key)
 }  
 
 
+// create bit array based on primary key
 bitarray* create_bitarray(const char *key, int K){
   bitarray *bitarr = create_bit_array(K*2);
   int i = 0;  //bit数组中的索引值
@@ -153,6 +192,8 @@ bitarray* create_bitarray(const char *key, int K){
   return bitarr;
 }
 
+
+// create bit array for value stored
 char *valueStored(int lnum, char start){
   char *tmp = (char *)malloc(4);
 
@@ -164,9 +205,11 @@ char *valueStored(int lnum, char start){
 }
 
 
+// reverse to valueStored
 void explainResult(char *rst){
   int start = rst[0];
   int lnum = (unsigned char)rst[1] 
     + (unsigned char)(rst[2])*256 + (unsigned char)(rst[3])*65536;
   printf("This sequence is from gene %d starting from position %d.\n", lnum, start);
 }
+
